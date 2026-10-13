@@ -5,6 +5,7 @@ import {IPerpetual} from "./interfaces/IPerpetual.sol";
 import {SignedDecimalMath} from "./libraries/SignedDecimalMath.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {IDealer} from "./interfaces/IDealer.sol";
 
 contract Perpetual is Ownable, IPerpetual {
     using SignedDecimalMath for int256;
@@ -29,8 +30,8 @@ contract Perpetual is Ownable, IPerpetual {
         credit = paper.decimalMul(fundingRate) + int256(balanceMap[trader].reducedCredit);
     }
 
-    function trade(bytes calldata tradeData) external onlyOwner {
-        (address[] memory traderList, int256[] memory paperChangeList, int256[] memory creditChangeList) = abi.decode(tradeData, (address[], int256[], int256[]));
+    function trade(bytes calldata tradeData) external {
+        (address[] memory traderList, int256[] memory paperChangeList, int256[] memory creditChangeList) = IDealer(owner()).approveTrade(msg.sender, tradeData);
 
         require(traderList.length == paperChangeList.length && traderList.length == creditChangeList.length, "LENGTH_MISMATCH");
         for (uint256 i = 0; i < traderList.length;) {
@@ -39,6 +40,7 @@ contract Perpetual is Ownable, IPerpetual {
                 i++;
             }
         }
+        require(IDealer(owner()).isAllSafe(traderList),"TRADER_NOT_SAFE");
     }
 
     function getFundingRate() external view returns (int256) {
@@ -55,7 +57,7 @@ contract Perpetual is Ownable, IPerpetual {
         balance storage b = balanceMap[trader];
         int256 rate = fundingRate;
         int256 credit = int256(b.paper).decimalMul(rate) + int256(b.reducedCredit) + creditChange;
-
+        bool isNewPosition = b.paper == 0;
         int128 newPaper = b.paper + SafeCast.toInt128(paperChange);
         int128 newReducedCredit = SafeCast.toInt128(credit - (int256(newPaper)).decimalMul(rate));
 
@@ -63,5 +65,14 @@ contract Perpetual is Ownable, IPerpetual {
         b.reducedCredit = newReducedCredit;
 
         emit BalanceChange(trader, paperChange, creditChange);
+        // 通知dealer记用户仓位
+        if(isNewPosition) {
+            IDealer(owner()).openPosition(trader);
+        }
+
+        if(newPaper == 0) {
+            IDealer(owner()).realizePnl(trader, newReducedCredit);
+            b.reducedCredit = 0;
+        }
     }
 }
