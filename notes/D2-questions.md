@@ -17,3 +17,11 @@
 - 把发给 Claude 的半句话打进了 `SignedDecimalMath.sol` 第 8 行（编辑器焦点没切走），整个项目编译失败；Claude 只删了那半句。`Liquidation.sol` 先搭函数壳的做法好，但 4 个命名返回值的函数里写了空 `return;` → Error 6777，命名返回值直接删掉 return 即可。
 - ConstOracle 第一版把价格写在源码里（`return 30000e6`）且函数标 view：混淆了"部署后不可改"和"写死在源码"；改为 immutable + 构造函数传入。
 - 第 4 步 Liquidation：`getTotalExposure` 和三个单人判断一次写对（符号、abs、按市场各自比例累加、`>=`、int/uint 转换都没错）。但 `_isAllMMSafe` 的 for 循环漏了 `++i` → 死循环，任何 trade 都会 OutOfGas；因为还没有调用方，16 个测试全绿也没暴露。`Funding._withdraw` 的 TODO 忘了替换。
+- 第 5 步 MetaNodeExternal：4 个存取款函数只抄了签名、函数体是空的（没写 `Funding.xxx(state, ...)` 转发），编译器对空函数体不报未使用参数警告，build 和 16 个旧测试（仍走 FundingHarness）都是绿的——"编译过 + 旧测试绿"不能说明新代码被测到；合约漏了 `abstract` 和 `is IDealer`，多写了空构造函数；`approveTrade` 加了 `view`（今天能过，D3 要写 orderFilledPaperAmount 就得去掉）。回调三个函数的 `onlyRegisteredPerp` 都加对了。
+- 第 5 步 MetaNodeDealer：一次写对（4 个管理函数都带 onlyOwner）。
+
+## D2 收尾记录
+- 测试由 Claude 写：`test/Dealer.t.sol` 12 个集成测试（真 Dealer + 真 Perpetual + MockPriceSource），`Funding.t.sol` 从 FundingHarness 切到真 Dealer，harness 已删除。全量 28 个测试。
+- 变异验证 7 项全部被抓到：realizePnl 去掉 onlyRegisteredPerp / `_isMMSafe` 改成 `>` / 取款退回旧检查 / 去掉白名单检查 / trade 去掉 isAllSafe / 敞口不取绝对值 / 删除持仓时不做 swap。
+- D2 的简化（后续要补）：`approveTrade` 只查白名单后直接 abi.decode（D3 换成验签 + `_matchOrders`）；管理函数和查询函数临时放在 MetaNodeDealer（D5 搬到 Operation / View）；Funding 仍是"只能操作自己账户"的 D1 签名。
+- ConstOracle 写了但项目内无引用，价格源统一用 MockPriceSource。

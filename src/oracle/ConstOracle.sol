@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import {IPriceSource} from "./interfaces/IPriceSource.sol";
+import {IPriceSource} from "../interfaces/IPriceSource.sol";
 
 contract ConstOracle is IPriceSource {
     uint256 public immutable price;

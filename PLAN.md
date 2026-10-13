@@ -10,7 +10,7 @@
 | 天 | 课程 | 内容 | 完成 |
 |---|---|---|---|
 | D1 | L1 + L2 | 定点数学 + Perpetual 账本（reducedCredit/资金费）；Types/Storage + 存取款时间锁 | [x] |
-| D2 | L3 + L4 | Dealer ↔ Perpetual 联动、标记价格；保证金风控 IM/MM safe | [ ] |
+| D2 | L3 + L4 | Dealer ↔ Perpetual 联动、标记价格；保证金风控 IM/MM safe | [x] |
 | D3 | L5 | EIP-712 订单签名 + 撮合结算 `_matchOrders` | [ ] |
 | D4 | L6 | 清算 + 坏账 + 保险账户 | [ ] |
 | D5 | L7 + L8 | 管理函数 + anvil 部署；Go 骨架 + abigen + 连接 anvil | [ ] |

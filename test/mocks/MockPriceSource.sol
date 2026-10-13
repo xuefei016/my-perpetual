@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
+import {IPriceSource} from "../../src/interfaces/IPriceSource.sol";
+
 /// @notice 测试用价格源：可以随时改价，用来模拟"价格下跌"
-contract MockPriceSource {
+contract MockPriceSource is IPriceSource {
     uint256 public price;
 
     constructor(uint256 _price) {

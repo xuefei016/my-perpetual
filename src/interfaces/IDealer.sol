@@ -5,7 +5,7 @@ interface IDealer {
     function approveTrade(address orderSender, bytes calldata tradeData)
     external returns (address[] memory traderList, int256[] memory paperChangeList, int256[] memory creditChangeList);
 
-    function isAllSafe(address[] calldata traderList) external pure returns (bool);
+    function isAllSafe(address[] calldata traderList) external view returns (bool);
 
     function openPosition(address trader) external;
 

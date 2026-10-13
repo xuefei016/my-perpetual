@@ -52,7 +52,6 @@ library Liquidation {
                 ++i;
             }
         }
-
         return true;
     }
 

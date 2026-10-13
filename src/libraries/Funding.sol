@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
+import "forge-std/console.sol";
 import {Errors} from "./Errors.sol";
-import {Types} from "./Types.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Liquidation} from "./Liquidation.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Types} from "./Types.sol";
 
 library Funding {
     using SafeERC20 for IERC20;
@@ -60,9 +62,8 @@ library Funding {
             state.secondaryCredit[from] -= secondaryAmount;
             IERC20(state.secondaryAsset).safeTransfer(to, secondaryAmount);
         }
-        // TODO D2: 换成 Liquidation._isSolidIMSafe
-        // TODO D2: 换成 Liquidation._isSolidIMSafe
-        require(state.primaryCredit[from] >= 0, Errors.ACCOUNT_NOT_SAFE);
+
+        require(Liquidation._isSolidIMSafe(state, from), Errors.ACCOUNT_NOT_SAFE);
         emit Withdraw(to, from, primaryAmount, secondaryAmount);
     }
 }
