@@ -4,6 +4,14 @@ pragma solidity ^0.8.19;
 library Types {
     uint256 constant ONE = 1e18;
 
+    struct Order {
+        address perp;
+        address signer;
+        int128 paperAmount;
+        int128 creditAmount;
+        bytes32 info; // MakerFeeRate|TakerFeeRate|Expiration|nonce
+    }
+
     struct State {
         address primaryAsset;
         address secondaryAsset;
@@ -21,6 +29,8 @@ library Types {
         mapping(address => mapping(address => uint256)) positionSerialNum; // [alice][BTC永续地址] = 0 记录平仓的数量
         uint256 maxPositionAmount; // 比如 10，限制每个人最多有多少个仓位
         mapping(address => bool) validOrderSender; //[撮合引擎地址] = true，谁有资格去调 trade，其实存的就是撮合地址
+        mapping(bytes32 => uint256) orderFilledPaperAmount; // 记录每一笔订单对应的撮合成功的paper数量
+        mapping(address => mapping(address => bool)) operatorRegistry; // 记录用户授权机器人帮他发布订单
     }
 
     /**
@@ -35,4 +45,17 @@ library Types {
         string name; // "BTC-USDC"	纯展示，给前端和后端看
         bool isRegistered; // 这个 Perpetual 是不是被管理员登记过的正规市场
     }
+
+    bytes32 constant ORDER_TYPEHASH =
+    keccak256("Order(address perp,address signer,int128 paperAmount,int128 creditAmount,bytes32 info)");
+
+    struct MatchResult {
+        address[] traderList;
+        int256[] paperChangeList;
+        int256[] creditChangeList;
+        int256 orderSenderFee;
+    }
+
+
+
 }
