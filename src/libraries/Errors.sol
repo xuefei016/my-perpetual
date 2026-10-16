@@ -18,4 +18,11 @@ library Errors {
     string constant ORDER_WRONG_SORTING = "META_ORDER_WRONG_SORTING";
     /// @notice Taker 成交数量错误
     string constant TAKER_TRADE_AMOUNT_WRONG = "META_TAKER_TRADE_AMOUNT_WRONG";
+    string constant INVALID_ORDER_SIGNATURE = "META_INVALID_ORDER_SIGNATURE";
+    string constant ORDER_EXPIRED = "META_ORDER_EXPIRED";
+    string constant ORDER_PRICE_NEGATIVE = "META_ORDER_PRICE_NEGATIVE";
+    string constant PERP_MISMATCH = "META_PERP_MISMATCH";
+    string constant ORDER_FILLED_OVERFLOW = "META_ORDER_FILLED_OVERFLOW";
+    string constant ORDER_SELF_MATCH = "META_ORDER_SELF_MATCH";
+    string constant ORDER_SENDER_NOT_SAFE = "META_ORDER_SENDER_NOT_SAFE";
 }

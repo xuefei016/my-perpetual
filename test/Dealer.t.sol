@@ -1,82 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import {Test} from "forge-std/Test.sol";
-import {MetaNodeDealer} from "../src/MetaNodeDealer.sol";
 import {Perpetual} from "../src/Perpetual.sol";
 import {Errors} from "../src/libraries/Errors.sol";
 import {Types} from "../src/libraries/Types.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockPriceSource} from "./mocks/MockPriceSource.sol";
+import {DealerFixture} from "./utils/DealerFixture.sol";
 
 /// @notice D2 集成测试：真 Dealer + 真 Perpetual + 可改价的价格源
-/// 角色：本测试合约 = Dealer 的 owner（管理员）；sender = 被授权的撮合引擎；alice 做多，bob 做空
-contract DealerTest is Test {
-    MockERC20 usdc;
-    MetaNodeDealer dealer;
-    Perpetual btc;
-    MockPriceSource btcPrice;
-
-    address alice = makeAddr("alice");
-    address bob = makeAddr("bob");
-    address sender = makeAddr("orderSender");
-
-    uint256 constant IM_RATIO = 1e17; // 初始保证金 10%
-    uint256 constant MM_RATIO = 5e16; // 维持保证金 5%
-
-    function setUp() public {
-        usdc = new MockERC20("USDC", "USDC", 6);
-        dealer = new MetaNodeDealer(address(usdc));
-        dealer.setMaxPositionAmount(10);
-        dealer.setOrderSender(sender, true);
-        (btc, btcPrice) = _newMarket("BTC-USDC", 30000e6, IM_RATIO, MM_RATIO);
-    }
-
-    // ==================== 辅助函数 ====================
-
-    /// 部署一个市场：Perpetual（owner = Dealer）+ 价格源，并在 Dealer 注册
-    function _newMarket(string memory name, uint256 price, uint256 im, uint256 mm)
-        internal
-        returns (Perpetual perp, MockPriceSource source)
-    {
-        perp = new Perpetual(address(dealer));
-        source = new MockPriceSource(price);
-        dealer.setPerpRiskParams(
-            address(perp),
-            Types.RiskParams({
-                initialMarginRatio: im,
-                liquidationThreshold: mm,
-                liquidationPriceOff: 1e16,
-                insuranceFeeRate: 1e16,
-                markPriceSource: address(source),
-                name: name,
-                isRegistered: true
-            })
-        );
-    }
-
-    function _deposit(address user, uint256 amount) internal {
-        usdc.mint(user, amount);
-        vm.startPrank(user);
-        usdc.approve(address(dealer), amount);
-        dealer.deposit(amount, 0, user);
-        vm.stopPrank();
-    }
-
-    /// 由撮合引擎提交一笔成交：long 以 price 买入 paper 张，short 是对手方
-    /// paper 精度 1e18，price 是"1 张值多少 USDC 最小单位"，所以 credit = paper * price / 1e18
-    function _trade(Perpetual perp, address long, address short, int256 paper, int256 price) internal {
-        address[] memory traders = new address[](2);
-        int256[] memory papers = new int256[](2);
-        int256[] memory credits = new int256[](2);
-        int256 credit = paper * price / 1e18;
-        (traders[0], papers[0], credits[0]) = (long, paper, -credit);
-        (traders[1], papers[1], credits[1]) = (short, -paper, credit);
-
-        vm.prank(sender);
-        perp.trade(abi.encode(traders, papers, credits));
-    }
-
+/// D3 起成交改为签名订单：环境和 _trade 辅助搬到 DealerFixture（alice 当 taker 买、bob 当 maker 卖，各自签名）
+contract DealerTest is DealerFixture {
     // ==================== 验收场景 ====================
 
     // ① D2 验收：存款 → 开仓 → 价格下跌 → isSafe 从 true 变 false
@@ -159,15 +91,11 @@ contract DealerTest is Test {
         _deposit(alice, 1000e6); // MM 需要 1500
         _deposit(bob, 5000e6);
 
-        address[] memory traders = new address[](2);
-        int256[] memory papers = new int256[](2);
-        int256[] memory credits = new int256[](2);
-        (traders[0], papers[0], credits[0]) = (alice, int256(1e18), -int256(30000e6));
-        (traders[1], papers[1], credits[1]) = (bob, -int256(1e18), int256(30000e6));
+        bytes memory data = _tradeData(btc, alice, bob, 1e18, 30000e6);
 
         vm.prank(sender);
         vm.expectRevert("TRADER_NOT_SAFE");
-        btc.trade(abi.encode(traders, papers, credits));
+        btc.trade(data);
 
         assertEq(dealer.getPositions(alice).length, 0); // 回滚后没有留下持仓记录
     }
@@ -176,7 +104,7 @@ contract DealerTest is Test {
     function testTradeRevertsForInvalidOrderSender() public {
         _deposit(alice, 5000e6);
         _deposit(bob, 5000e6);
-        bytes memory data = abi.encode(new address[](0), new int256[](0), new int256[](0));
+        bytes memory data = _tradeData(btc, alice, bob, 1e18, 30000e6); // 签名完全合法，只是提交人不对
 
         vm.prank(alice);
         vm.expectRevert(bytes(Errors.INVALID_ORDER_SENDER));
@@ -234,15 +162,11 @@ contract DealerTest is Test {
         _deposit(bob, 10000e6);
         _trade(btc, alice, bob, 1e18, 30000e6);
 
-        address[] memory traders = new address[](2);
-        int256[] memory papers = new int256[](2);
-        int256[] memory credits = new int256[](2);
-        (traders[0], papers[0], credits[0]) = (alice, int256(1e18), -int256(2000e6));
-        (traders[1], papers[1], credits[1]) = (bob, -int256(1e18), int256(2000e6));
+        bytes memory data = _tradeData(eth, alice, bob, 1e18, 2000e6);
 
         vm.prank(sender);
         vm.expectRevert(bytes(Errors.POSITION_AMOUNT_REACH_UPPER_LIMIT));
-        eth.trade(abi.encode(traders, papers, credits));
+        eth.trade(data);
     }
 
     // ==================== 取款与持仓联动（_isSolidIMSafe） ====================
