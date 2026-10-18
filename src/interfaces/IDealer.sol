@@ -10,4 +10,15 @@ interface IDealer {
     function openPosition(address trader) external;
 
     function realizePnl(address trader, int256 pnl) external;
+
+    function requestLiquidation(
+        address executor,
+        address liquidator,
+        address liquidatedTrader,
+        int256 requestPaperAmount
+    ) external returns (int256 liqtorPaperChange, int256 liqtorCreditChange, int256 liqedPaperChange, int256 liqedCreditChange);
+
+    function isIMSafe(address trader) external view returns (bool);
+
+    function handleBadDebt(address liquidatedTrader) external;
 }

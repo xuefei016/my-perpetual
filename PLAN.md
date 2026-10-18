@@ -12,7 +12,7 @@
 | D1 | L1 + L2 | 定点数学 + Perpetual 账本（reducedCredit/资金费）；Types/Storage + 存取款时间锁 | [x] |
 | D2 | L3 + L4 | Dealer ↔ Perpetual 联动、标记价格；保证金风控 IM/MM safe | [x] |
 | D3 | L5 | EIP-712 订单签名 + 撮合结算 `_matchOrders` | [x] |
-| D4 | L6 | 清算 + 坏账 + 保险账户 | [ ] |
+| D4 | L6 | 清算 + 坏账 + 保险账户 | [x] |
 | D5 | L7 + L8 | 管理函数 + anvil 部署；Go 骨架 + abigen + 连接 anvil | [ ] |
 | D6 | L9 + L10 前半 | Go 端 EIP-712 与合约哈希对齐；订单簿数据结构 | [ ] |
 | D7 | L10 后半 + L11 | 撮合引擎（部分成交、价格-时间优先）；tradeData 编码 + 提交 trade | [ ] |

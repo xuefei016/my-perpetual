@@ -37,4 +37,8 @@ contract MetaNodeDealer is MetaNodeExternal {
     function getTraderRisk(address trader) external view returns (int256 netValue, uint256 exposure, uint256 initialMargin, uint256 maintenanceMargin) {
         return Liquidation.getTotalExposure(state, trader);
     }
+
+    function getLiquidationPrice(address trader, address perp) external view returns (uint256) {
+        return Liquidation.getLiquidationPrice(state, trader, perp);
+    }
 }

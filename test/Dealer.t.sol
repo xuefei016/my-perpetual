@@ -220,6 +220,8 @@ contract DealerTest is DealerFixture {
         dealer.setMaxPositionAmount(100);
         vm.expectRevert("Ownable: caller is not the owner");
         dealer.setWithdrawTimeLock(0);
+        vm.expectRevert("Ownable: caller is not the owner");
+        dealer.setInsurance(alice);
         vm.stopPrank();
     }
 }

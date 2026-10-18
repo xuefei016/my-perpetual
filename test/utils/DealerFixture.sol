@@ -34,13 +34,18 @@ abstract contract DealerFixture is EIP712Test {
         carol = _newUser("carol");
 
         usdc = new MockERC20("USDC", "USDC", 6);
-        dealer = new MetaNodeDealer(address(usdc));
+        dealer = _deployDealer();
         dealer.setMaxPositionAmount(10);
         dealer.setOrderSender(sender, true);
         (btc, btcPrice) = _newMarket("BTC-USDC", 30000e6, IM_RATIO, MM_RATIO);
     }
 
     // ==================== 环境 ====================
+
+    /// 子类可覆盖：例如换成暴露 internal / 库函数的 harness
+    function _deployDealer() internal virtual returns (MetaNodeDealer) {
+        return new MetaNodeDealer(address(usdc));
+    }
 
     function _newUser(string memory name) internal returns (address user) {
         uint256 key;

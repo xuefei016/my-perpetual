@@ -31,6 +31,7 @@ library Types {
         mapping(address => bool) validOrderSender; //[撮合引擎地址] = true，谁有资格去调 trade，其实存的就是撮合地址
         mapping(bytes32 => uint256) orderFilledPaperAmount; // 记录每一笔订单对应的撮合成功的paper数量
         mapping(address => mapping(address => bool)) operatorRegistry; // 记录用户授权机器人帮他发布订单
+        address insurance; // 保险账户的地址
     }
 
     /**
@@ -55,7 +56,5 @@ library Types {
         int256[] creditChangeList;
         int256 orderSenderFee;
     }
-
-
 
 }

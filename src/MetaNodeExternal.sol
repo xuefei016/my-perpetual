@@ -107,4 +107,20 @@ abstract contract MetaNodeExternal is MetaNodeStorage, IDealer {
     function setOperator(address operator, bool isValid) external {
         state.operatorRegistry[msg.sender][operator] = isValid;
     }
+
+    function setInsurance(address _insurance) external onlyOwner {
+        state.insurance = _insurance;
+    }
+
+    function requestLiquidation(address executor, address liquidator, address liquidatedTrader, int256 requestPaperAmount) external onlyRegisteredPerp returns (int256 liqtorPaperChange, int256 liqtorCreditChange, int256 liqedPaperChange, int256 liqedCreditChange) {
+        return Liquidation.requestLiquidation(state, msg.sender, executor, liquidator, liquidatedTrader, requestPaperAmount);
+    }
+
+    function isIMSafe(address trader) external view returns (bool) {
+        return Liquidation._isIMSafe(state, trader);
+    }
+
+    function handleBadDebt(address liquidatedTrader) external {
+        Liquidation.handleBadDebt(state, liquidatedTrader);
+    }
 }

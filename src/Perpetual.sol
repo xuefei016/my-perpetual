@@ -40,7 +40,7 @@ contract Perpetual is Ownable, IPerpetual {
                 i++;
             }
         }
-        require(IDealer(owner()).isAllSafe(traderList),"TRADER_NOT_SAFE");
+        require(IDealer(owner()).isAllSafe(traderList), "TRADER_NOT_SAFE");
     }
 
     function getFundingRate() external view returns (int256) {
@@ -66,13 +66,38 @@ contract Perpetual is Ownable, IPerpetual {
 
         emit BalanceChange(trader, paperChange, creditChange);
         // 通知dealer记用户仓位
-        if(isNewPosition) {
+        if (isNewPosition) {
             IDealer(owner()).openPosition(trader);
         }
 
-        if(newPaper == 0) {
+        if (newPaper == 0) {
             IDealer(owner()).realizePnl(trader, newReducedCredit);
             b.reducedCredit = 0;
+        }
+    }
+
+    // 清算人调用
+    function liquidate(address liquidator, address liquidatedTrader, int256 requestPaper, int256 expectCredit)
+    external returns (int256 liqtorPaperChange, int256 liqtorCreditChange) {
+        int256 liqedPaperChange;
+        int256 liqedCreditChange;
+        (liqtorPaperChange, liqtorCreditChange, liqedPaperChange, liqedCreditChange) = IDealer(owner()).requestLiquidation(msg.sender, liquidator, liquidatedTrader, requestPaper);
+
+        // 价格保护，不要直接用expectCredit与liqtorCreditChange相比较，因为这个 expectCredit 是 requestPaper 的 credit，它有可能的 requestPaper 不一定全部被这个清算人吃掉，所以还是得用除法，但是除法的时候又容易丢失精度，所以要把除法转成乘法
+        // 期望价格 = expectCredit / requestPaper * -1和liqtorCreditChange / liqtorPaperChange * -1，这里的负一很重要啊，它决定了这个方向，符号的方向
+        if (liqtorPaperChange > 0) {
+            require(expectCredit * liqtorPaperChange <= liqtorCreditChange * requestPaper, "LIQUIDATION_PRICE_PROTECTION");
+        } else {
+            require(expectCredit * liqtorPaperChange >= liqtorCreditChange * requestPaper, "LIQUIDATION_PRICE_PROTECTION");
+        }
+
+        _settle(liquidator, liqtorPaperChange, liqtorCreditChange);
+        _settle(liquidatedTrader, liqedPaperChange, liqedCreditChange);
+
+        require(IDealer(owner()).isIMSafe(liquidator), "LIQUIDATOR_NOT_SAFE");
+
+        if (balanceMap[liquidatedTrader].paper == 0) {
+            IDealer(owner()).handleBadDebt(liquidatedTrader);
         }
     }
 }

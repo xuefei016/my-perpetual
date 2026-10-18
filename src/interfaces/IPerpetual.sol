@@ -10,4 +10,6 @@ interface IPerpetual {
 
     function updateFundingRate(int256 newFundingRate) external;
 
+    function liquidate(address liquidator, address liquidatedTrader, int256 requestPaper, int256 expectCredit)
+    external returns (int256 liqtorPaperChange, int256 liqtorCreditChange);
 }
