@@ -18,4 +18,9 @@ abstract contract MetaNodeStorage is Ownable, ReentrancyGuard {
         require(state.perpRiskParams[msg.sender].isRegistered, Errors.PERP_NOT_REGISTERED);
         _;
     }
+
+    modifier onlyFundingRateKeeper() {
+        require(state.fundingRateKeeper == msg.sender, Errors.INVALID_FUNDING_RATE_KEEPER);
+        _;
+    }
 }
