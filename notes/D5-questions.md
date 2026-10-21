@@ -29,5 +29,8 @@
 - **（用户调整）第 5 步开始前，用户决定 Go 骨架（第 5–7 步）挪到明天**，今天先把合约架构讲清楚：①写完后怎么跑起来 ②合约部分怎么收尾。
 - 「怎么跑起来」：Claude 写了 `script/Demo.s.sol`（演示脚本，不是用户手写），在 Deploy 部署好的 anvil 上用 4 个 anvil 账户真实跑场景 A：存款（alice 5000 / bob 5000 / carol 10000）→ alice、bob 用 vm.sign 签 EIP-712 订单，撮合引擎 #1 调 btc.trade 成交 1 张 @30000 → 任何人改价到 26000（alice 净值 1000 < MM 1300）→ carol 先 getLiquidationCost 得 -25740 作为 expectCredit，再 btc.liquidate。链上读回：alice paper 0、primaryCredit 482.6（5000 − 30000 + 25740 − 257.4）、保险账户 257.4、carol 持 1 张。写脚本时踩到：console2.log 没有 (int,int,int) 重载、run() 局部变量太多 Stack too deep（拆成 4 个 step 函数）、NatSpec `///` 注释里出现 `@30000` 会被当成文档标签报错。
 
+- **（用户调整）部署分三阶段走**：①不连链的本地模拟（`forge script` 不带 --rpc-url，-vvvv 能看到 `Operation::setX(2, …) [delegatecall]`——2 就是 state 的起始存储槽，库拿着槽号改 Dealer 存储）②用户自己开 anvil 广播部署 + 6 项 cast 核对（全部通过：owner、BTC 注册、Perpetual owner=Dealer、state 7 个值字段、#4 余额、cast storage 读 validOrderSender）③Sepolia——**用户决定不上 Sepolia，只在本地 anvil 跑**。
+- anvil 上 13 笔部署交易只出了 2 个块：forge 并发发送，anvil 把同时到达的打进同一块。
+
 ## 留给后续
 - **Go 骨架 + abigen + 读链上 + 发 deposit（原 D5 第 5–7 步）挪到下一次**，排期调整需回「总体计划」会话；第 5 步的布置（目录结构、类型对照、abigen 命令、go-ethereum 对齐 1.17.4）已在本会话讲完，可直接照做。
