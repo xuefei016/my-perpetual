@@ -32,5 +32,29 @@
 - **（用户调整）部署分三阶段走**：①不连链的本地模拟（`forge script` 不带 --rpc-url，-vvvv 能看到 `Operation::setX(2, …) [delegatecall]`——2 就是 state 的起始存储槽，库拿着槽号改 Dealer 存储）②用户自己开 anvil 广播部署 + 6 项 cast 核对（全部通过：owner、BTC 注册、Perpetual owner=Dealer、state 7 个值字段、#4 余额、cast storage 读 validOrderSender）③Sepolia——**用户决定不上 Sepolia，只在本地 anvil 跑**。
 - anvil 上 13 笔部署交易只出了 2 个块：forge 并发发送，anvil 把同时到达的打进同一块。
 
+- **（Go 部分重启）第 5 步初版**（my-perpetual-backend，git init 了、abigen.sh 写得不错：set -euo pipefail、cd 到仓库根、先 forge build）：
+  ① **没跑 go mod tidy** → `go build ./...` 失败（missing go.sum entry × 14），go.mod 里 go-ethereum 还标着 `// indirect`。
+  ② **漏了 cmd/backend/main.go 和 engine/api/keeper 的 doc.go**（目录都没建）。
+  ③ ERC20 绑定 package 名写成 `mockERC20`（Go 包名应全小写、且与目录名 erc20 一致）；脚本里输出文件写成 `Perpetual.go` 而磁盘上是 `perpetual.go`（macOS 大小写不敏感所以没报错，Linux 上会多出一个文件）。
+  ④ 没有 .gitignore，`.idea/` 会被提交；脚本里留着"你来补"的模板注释。
+
+- 第 5 步第二版：tidy 后 go-ethereum 变直接依赖，build/vet 通过；包名改 erc20、文件名小写、加 .gitignore、补 main.go 和 3 个 doc.go。doc.go 只有 package 行没写说明注释 → Claude 补上包注释（机械），.gitignore 改成 `.idea/` 带换行。
+
+- 第 6 步：格式化函数用 big.Int QuoRem 拆整数/小数再拼字符串（不经过浮点，比提示的 big.Float 更稳；ratio 复用 16 位小数=百分比）。初版 build/vet 通过、输出正确（31337、BTC 参数、alice []、carol [btc]、482.6），但：
+  ① **`chain.New` 里 `defer client.Close()`**——New 一返回就把连接关了。HTTP 下 go-ethereum 的 Close 是空操作所以"碰巧能用"；Claude 把 URL 换成 `ws://` 验证：`client is closed`。资源谁创建、谁的调用方负责关闭 → 应在 main 里 `defer c.Client.Close()`。
+  ② `erc20.NewERC20` 的 err 没检查，且变量名 `erc20` 遮蔽了包名 erc20。
+  ③ 库函数里 `fmt.Println("chain id")` 打印（副作用应留给 main）；formatRatio 写了没用，风控参数直接打印原始结构体；main 里把 *Chain 命名为 client 易混淆；错误信息里重复带 rpcURL。
+
+- 第 6 步第二版：Close 挪到 main（ws:// 验证通过）、erc20 补了 err 检查、删库内打印、formatRatio 用上、*Chain 改名 c、format 拼写改对。**变量名 erc20 遮蔽包名、错误信息重复带 rpcURL 没改** → Claude 直接改（usdc 变量名；"bind dealer: %w" 等）。
+
+- 第 7 步 chain.go 初版（build 过，**go vet 报错**）：`fmt.Errorf("...%s", receipt.Status)` 用 %s 格式化 uint64（vet 能抓、编译器不抓——要跑 vet）；漏了空私钥检查（HexToECDSA("") 报的是看不懂的 "invalid length, need 256 bits"）；失败时返回 nil 回执、错误里没带交易哈希，丢掉排查信息。TrimPrefix 0x、WaitMined + 检查 Status 都写对了。
+
+- 第 7 步 main 初版：approve 成功上链（gas 46224）但 deposit 报 `ERC20: insufficient allowance`。原因：**`Approve(auth, usdcAddr, amount)` 授权给了 USDC 合约自己而不是 Dealer**（和 D5 部署脚本"注册成价格源地址"是同一类错：参数类型都是 address，编译器无法区分传的是哪个合约）。排查方法：`cast tx <hash> input` + `cast 4byte-decode` 解码出 approve(0xCf7E…=USDC, 1e9)；`cast call allowance(alice, dealer)` = 0、`allowance(alice, usdc)` = 1e9 坐实。另：deposit 返回的 tx 用 `_` 丢弃、没 WaitSuccess。
+  - 报错发生在 Deposit 调用时（估算 gas 模拟执行就 revert）→ 交易根本没发出，链上不会有这笔失败交易。
+
+- 第 7 步第二版：approve 改成 dealerAddr、deposit 也 WaitSuccess → 跑通：wallet 95000→94000、credit 482.6→1482.6（用户自己跑），Claude 再跑一次 →2482.6（每跑一次多存 1000，证明真上链）。approve gas 46224。未做：auth.From 与 alice 比对（留到加配置时）。
+- 收尾：backend 私有仓库 github.com/xuefei016/my-perpetual-backend（98fcc01，gh repo create --private）；PLAN 勾 D5；Go 部分 Obsidian 笔记单独一篇「D5b-Go骨架、abigen与链上读写」。
+
 ## 留给后续
-- **Go 骨架 + abigen + 读链上 + 发 deposit（原 D5 第 5–7 步）挪到下一次**，排期调整需回「总体计划」会话；第 5 步的布置（目录结构、类型对照、abigen 命令、go-ethereum 对齐 1.17.4）已在本会话讲完，可直接照做。
+- ~~Go 骨架 + abigen + 读链上 + 发 deposit 挪到下一次~~ → 已在 2026-10-21/22 完成（见上）。
+- 后端待办：地址/RPC/私钥改成配置（现在硬编码在 main）；Transactor 后校验 auth.From；监听 Operation 库事件需用 Operation 的 ABI（Dealer ABI 里没有）；validOrderSender 无 view。
