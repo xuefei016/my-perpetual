@@ -16,7 +16,7 @@
 | D5 | L7 + L8 | 管理函数 + anvil 部署；Go 骨架 + abigen + 连接 anvil | [x] |
 | D6 | 总结 | 合约架构设计模式总结 + 与之前借贷/DEX 项目横向对比（不写新代码） | [ ] |
 | D7 | L9 + L10 前半 | Go 端 EIP-712 与合约哈希对齐；订单簿数据结构 | [x] |
-| D8 | L10 后半 + L11 | 撮合引擎（部分成交、价格-时间优先）；tradeData 编码 + 提交 trade | [ ] |
+| D8 | L10 后半 + L11 | 撮合引擎（部分成交、价格-时间优先）；tradeData 编码 + 提交 trade | [x] |
 | D9 | L12 | HTTP API + 资金费 keeper + 清算机器人，端到端跑通 | [ ] |
 
 节点：D4 结束写合约篇笔记，D6 写架构总结笔记，D9 结束写后端篇笔记（Obsidian `Solidity学习/MetaNodePerpetual/`）。
