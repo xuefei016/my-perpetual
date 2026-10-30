@@ -1,0 +1,89 @@
+# D9 用户关键问题（HTTP API + 资金费 keeper + 清算机器人 + 端到端）
+
+## 用户踩过的坑 / review（真实发生）
+- 第 1 步 config.Load：**一次写对**。以 Default() 为底；三把私钥 TrimSpace 后判空，缺失项收集后一次性报出（只写变量名不写值）；RPC_URL / HTTP_ADDR 非空才覆盖。小点：`rpcUrl` 按 Go 惯例应为 `rpcURL`（缩写全大写）。
+  - Claude 写 config_test.go（全缺 / 缺一个 / 纯空白算缺 / 报错不泄露私钥 / 空串不覆盖 / 正常覆盖 / Default 其他字段保留）。变异 6 项全抓：Config{} 起底、去掉 TrimSpace、只报第一个缺失、空串也覆盖、漏覆盖 HTTP_ADDR、私钥串位。
+- 第 2 步决定（用户选）：链下 IM 预检选 **B 预估成交后 IM**（对比 A 不查、C 只查当前 isIMSafe）。理由：链上成交后只查 MM，链下要防"开仓即接近爆仓"；平仓单 IM 变小不会被误拦。
+- 第 2a 步 handlePlaceOrder 初版（build/vet/gofmt 过，旧测试全绿，**新测试 2 个 FAIL**）：
+  - 做对的：IsHexAddress 先于 HexToAddress；SetString 检查 ok；info 长度 32；已知市场检查放在查链之前；验签规则 `recovered == signer || IsOperatorValid(signer, recovered)` 参数顺序正确；只读调用用 r.Context()；Remaining 用 new(big.Int).Sub 新对象、≤0 返回 409；上链 ctx 不跟随客户端取消（用了 context.Background() + 超时，WithoutCancel(r.Context()) 更好——保留请求里的 trace 等值）；Filled 累加新对象；注释写明"引擎已经改了 remaining，不能再减 total"。
+  - 漏掉的（布置细节清单里有）：① **TxHash 无条件 `m.TxHash.Hex()`**——没成交时返回 `0x000…000` 而不是省略，`omitempty` 只省空串，零值哈希的 Hex 不是空串；② 引擎/上链失败返回 500 而不是 422（500 表示服务器自己坏了，撮合拒绝重复单、链上 revert 都是"请求无法处理"）；③ 部分错误信息丢掉了底层 err（info/signature 解码只写 "invalid info"）。
+  - Claude 写 fakechain_test.go：**假 RPC 后端**——实现 bind.ContractBackend 的 CodeAt/CallContract，按 4 字节选择器用 Dealer ABI 解包参数、打包返回值，生产代码 s.c.Dealer.Xxx 原样调用，不用为测试抽接口。server_test.go：贯穿例子（carol 链上已成交 0.08 只挂 0.02 → alice 买 0.05 吃 0.02 剩 0.03，重复 POST 422）、链上已全成交 409、operator 授权/未授权/参数顺序反、本人签不查 operator、拒绝 16 例、查链失败 502、上链 revert 422 带原因、客户端取消不影响上链 ctx。
+  - 变异 13 项全抓（先在副本上用参考补丁验证测试正确）。初版有 2 项存活被补强：「去掉 IsHexAddress」——用例 "0x1234" 被 HexToAddress 补成另一个地址，碰巧也是未知市场 → 400；改成多一个字节 `0x00+地址`，HexToAddress 会**悄悄截掉多余字节得到正确地址**，只有 IsHexAddress 能挡。「链 ID 写死 31337」——假链 ChainId 原本就是 31337；改成 4242。
+- 第 2a 步第二版：TxHash 只在有成交时赋值、引擎/上链错误改 422，**自己跑过 go test**，全绿。
+- 第 2b 步 checkIM：**一次写对**（全部新测试第一次就绿）。
+  - 做对的：fillPaper 用 `remaining × sign(paper)`、fillCredit 先乘后 `Quo`（边界用例证明 Div 会差 1 误拒）；`im()` 抽成小函数，顺序「×mark/1e18 → Abs → ×imr/1e18」与合约 getTotalExposure 一致；newIM = 原 IM − im(old) + im(new)；减仓判断排除反手（符号乘积 ≥ 0）且 newPaper = 0 算减仓；用哨兵错误 `errIMNotSafe` + `errors.Is` 区分 422 / 502；报错带 net / im 数字；四处查链错误都 %w 标明阶段。
+  - 小问题：`ok bool` 返回值实际没用（不安全时走的是 errIMNotSafe 错误，ok 永远和 err == nil 等价）——签名可以简化成只返回 error；`oldPaper.Sign() != 0` 是多余条件（old = 0 时 CmpAbs(0, new) 必然 < 0，本来就不会判成减仓）；缺函数注释和"未计 taker fee"。
+  - Chain 新增 `Backend bind.ContractBackend` 字段（Claude 加）：绑定任意 perp / 价格源需要 backend，单测里换成假后端；fakeBackend 改成按「目标地址 + 选择器」分发 Dealer / Perpetual / PriceSource 三份 ABI。
+  - Claude 写 im_test.go：布置表的 5 行贯穿例子 + 只按剩余量（多/空两侧）+ 恰好平完 + 反手过大 + 新开仓 + 空头低于标记价加仓 + 报错带数字 + 向零截断边界 + 4 个查链失败 502。变异 17 项：初版存活 3 项有效变异，补用例后全抓——「反手当减仓」（原用例反手后 IM 本来就够，补"已低于 IM 的人反手"）、「newPaper=0 不算减仓」（补对应变异）、「fillPaper 用整张」（多头侧误用整张反而让浮盈变大照样通过，补空头侧）。等价变异 2 项：去掉 `oldPaper.Sign() != 0`；im() 里 Quo 换 Div（被除数已取绝对值，非负时两者相同）。
+  - 用户关键概念：**为什么减仓必须放行**——已低于 IM 的人如果连平仓都被拦，只能等着被清算；**为什么用订单价而不是标记价**——买贵了的差价直接从净值里扣（例：0.03 @27000 浮亏 30，刚好把 1482.6 压到 1482 以下）。
+- 第 3 步决定（用户选）：撤单鉴权选 **C：EIP-191 签名 + deadline**（对比 A 不鉴权、B 只签名可重放）。关键事实：**链下撤单不会让签名失效**——签名单在过期前链上永远有效，"撤单"只是从簿里拿掉并承诺 orderSender 不再提交；鉴权防的是别人撤你的单。deadline 服务端限制最多 5 分钟，防客户端填一年后让防重放失效。
+- 用户问题：**撤单接口里哪里体现 orderId？**——在 URL 路径 `DELETE /order/{id}`，用 Go 1.22 的 `r.PathValue("id")` 取；REST 惯例是路径标识"操作哪个资源"、body 放附加参数（perp、deadline、签名）。orderId 用在 4 处：规范化、签名消息（绑定到这张单，拿去撤别的单验不过）、引擎查删、响应。来源是下单响应里的 orderId（EIP-712 digest）。
+- 第 3a 步 handleCancelOrder：**新测试第一次全绿**。Claude 先加 `Engine.Order(perp, id)`（原 CancelOrder 先删后返回，没法先查 signer 再删）。
+  - 做对的：ID 用 hexutil.Decode + 长度 32 校验后 `BytesToHash(raw).Hex()` 规范化成小写（大写路径也能撤）；验签对象是**簿里订单的 `bo.Order.Signer`**，不信任客户端；抽出 `s.authorized(opts, signer, recovered)` 复用本人/operator 规则；`maxCancelWindow` 常量；deadline 检查在查链之前。
+  - 问题：① CancelOrder 失败返回 502——查到之后、撤之前可能被别的 taker 吃完，是"找不到"不是"上游坏了"，应 404；`removed == nil` 分支不可达（引擎找不到会返回 err）。Claude 直接改成 404 并删死分支。② 没复用 `chain.RecoverSigner`，自己 `SigToPub` + `if v >= 27 { v -= 27 }`：放宽成也接受 v = 0/1，和下单验签规则不一致；坏签名返回 400（布置是 401）。③ 下单那边仍是内联 IsOperatorValid，没改用 authorized。
+  - Claude 写 cancel_test.go：贯穿例子（撤后簿空、本人不查 operator、重发 404）、大写 ID 规范化、17 例鉴权/参数（bob 撤 carol 401、operator 授权 200 / 方向反 401、body deadline 与签名不一致 401、签的是别的单 401、1 小时 / 5 分 30 秒 / 过期重放 400、节点挂了时过期请求仍先报 400、operator 查链失败 502、坏 ID / 坏 perp / 未知市场 / 未知订单 / 坏签名 hex）。变异 10 项全抓（不规范化、去上限、去过期、deadline 或 ID 不进签名、把 recovered 当 signer、忽略非本人、operator 恒真、去 EIP-191 前缀、不从簿删除）。
+- 第 3b 步 handleOrderBook / handlePosition 初版（build/vet/gofmt 过、**自己没跑新测试**；新测试 3 个 FAIL）：
+  - ① **`make([]LevelDTO, len(s))` 再 `append`**——make 第二个参数是**长度**不是容量，切片一开始就有 len(s) 个零值元素，append 接在后面：depth=2 返回 4 档，前 2 档是空字符串。正确：`make([]LevelDTO, 0, len(s))`（长度 0、容量 len(s)），或 `make(…, len(s))` 后用下标赋值 `m[i] = …`。
+  - ② 盘口未知市场返回 500（应 404，是"资源不存在"不是服务器 bug）；③ 仓位接口没在查链前判断未知市场，假链上报 502、真链上会是 "no contract code" 之类的 502——布置细节 4 要求查链前 404。
+  - 小点：`if s := r.URL.Query().Get("depth")` 遮蔽了接收者 `s`（能跑但读代码容易看错）；`for l := range s` 的 l 其实是下标；查链错误没 %w 标明阶段。
+  - 做对的：depth 默认 20 / 上限 100 用常量；Atoi 失败、<1、>100 都 400；perp 用请求地址现场绑定（没用 s.c.BTC）；返回地址 .Hex() 规范化；三个链上调用都 502。
+  - Claude 写 query_test.go：深度截断与同价合并（26000 两张合并 count 2）、默认深度、空簿是 `[]` 不是 `null`（直接看原始 JSON）、depth 7 个非法值与上限 100 可用、仓位 6 字段（safe 用 false 区分零值、改状态后再查防字段串位）、未知市场在查链前 404、三个链上调用分别失败 502。先用参考补丁在副本上验证全绿，变异 7 项全抓。
+- 用户问题：**仓位接口怎么在查链前挡掉未知市场？**——拿到 perpAddress 后先 `if _, _, err := s.eng.Snapshot(perpAddress, 0); err != nil { 404 }`：引擎只给配置里的市场建了簿，depth 0 只借它判断存在；必须放在 NewPerpetual 和三个链上调用之前（和下单接口同一写法）。
+- 第 3b 步第二版：① make 改成 `make([]LevelDTO, 0, len(s))`、③ 仓位查链前 404 修好；**但用户说"测试全绿"时 ② 盘口未知市场仍返回 500**（`go test -count=1` 实测 1 个 FAIL）——又一次没实际跑测试就报全绿（D8 的老坑）。Claude 直接改成 404 并加注释"引擎只会因为未知市场报错"，之后 4 包全绿。
+- 第 4 步决定（用户选）：资金费公式选 **A 溢价法 + 夹限**：`delta = −(mid − mark) × interval / 8h`，|delta| ≤ mark/1000，盘口缺一侧跳过（对比 B 固定费率、C 不夹限）。
+  - 关键单位：链上 `fundingRate` 是**累计值，单位 = 每 1 张累计应收/付多少 USDC（6 位）**（由 `credit = paper × fundingRate / 1e18 + reducedCredit` 推出）；keeper 每次写 `old + delta`，**delta < 0 → 多头 credit 减少 → 多头付钱**。
+  - **参考项目 fundingratekeeper.go 的公式两处错**：① 单位——把溢价比例（1e18 精度）直接加到累计值上，1% 溢价 /3 ≈ 3.3e15，按 USDC 6 位读是每张 33 亿 USDC；② 方向——`+ (mark − index)`，合约比指数贵时反而让多头收钱。
+  - 例：mid 26100、mark 26000、interval 1h → delta = −100 × 1/8 = −12.5 USDC/张（−12500000）；alice 多 0.54 → credit −6.75，bob 空 1.3 → +16.25。
+  - Claude 准备工作：config 加可选 FUNDING_INTERVAL / LIQUIDATION_INTERVAL（time.ParseDuration，≤0 报错，补测试）；`chain.(*Chain).MarkPrice(opts, perp)`（风控参数 → 价格源 → getMarkPrice，checkIM 里同一段可改用它）；keeper 骨架加 `BookSource` 接口（engine 实现）、`fundingPeriod` 常量、纯函数 `fundingDelta`，nextRates 改成返回 (perps, rates) 子集。
+- 第 4a 步 fundingDelta：**一次写对**。`Sub(mark, mid)` 一步得到 −(mid − mark)；先乘纳秒再除 8h、Quo；夹限返回新对象、不改入参。临时测试核对：±12.5 / 夹到 −26 / 0 / 15s 时 ±52083（对称截断）。小点：1000 可提成常量。
+- 第 4a 步 nextRates 初版（能编译、vet 过，但有问题）：
+  - ① **漏了 `delta == 0` 跳过**（布置细节 / 表格第 4 行）：盘口刚好在标记价时也会发一笔 updateFundingRate，白花 gas。
+  - ② **用了 go-ethereum 的 `log` 包**：它在 init 里是 `slog.New(DiscardHandler())`，**不调 log.SetDefault 就什么都不输出**——警告全被吞掉；项目其余地方用的是标准库 `log`。另外 `log.Warn("…", perp)` 键值对个数是奇数，slog 会打成 `!BADKEY`。
+  - ③ 所有错误直接 `return nil, nil, err`，没有 %w 包装、没带市场地址和阶段（多个市场时不知道是谁的哪一步坏了）。
+  - 小点：两个判空 if 可以合并成 `len(bids) == 0 || len(asks) == 0`；`fundingRate.Add(fundingRate, delta)` 原地改绑定返回值（这里是新对象不出错，但和"统一 new"的习惯不一致）；`mid = mid.Quo(...)` 多余赋值。
+  - 做对的：mid 用 new(big.Int).Add 没改盘口 Price；任一侧为空就 continue；读链失败整体返回（没有跳过造成部分更新）；perps / rates 同步 append。
+
+## Codex D9 接续（2026-10-30）
+
+- 第 4b 步 `tick` + `Run` review：用户手写主体；`Run` 使用 ticker、每轮独立的 30 秒超时 context，tick 返回后立即 cancel；单次失败记日志继续，父 context 取消返回 nil。`tick` 对 nextRates 错误使用 `%w`，空更新跳过；拷贝 TransactOpts 后设置 context，经 Dealer 更新并用 WaitSuccess 检查回执。
+- 新增 `internal/keeper/funding_run_test.go`（Codex 写）：空盘口/单侧盘口/零增量不进入发交易；读链错误保留阶段及原错误；首次等待 interval、失败后继续、每轮 context 独立且及时释放、30 秒 deadline、父 context 的值与取消传递；等待期间及 RPC 中取消能正常退出。
+- 临时副本做 8 项变异，全部被测试捕获：不调 tick、单次失败退出、漏 cancel、超时 context 脱离父级、超时错误、正常退出返回错误、空更新仍发交易、`%w` 改成 `%v`。未修改用户工作区主体代码。
+- 本轮 build / vet / gofmt 检查及 `go test -count=1 ./...` 通过。第 4 步代码及本地测试完成，原计划进度 60%；真实 funding 交易/回执和链上对账仍待第 6 步 anvil 验收，D9 尚未完成。下一步清算机器人。
+- 第 5a 步 `liquidate` 初版 review（待用户修正）：读目标市场仓位、零仓位跳过、GetLiquidationCost、拷贝 auth 并传 ctx、调用 Liquidate 和 WaitSuccess 的顺序正确。用户提交报价的 `(LiqtorPaperChange, LiqtorCreditChange)` 配对合理：读余额与报价之间仓位可能缩小，不能把旧 balance.Paper 与缩小后的报价 credit 混用；例：原 +0.5 张，报价变为 +0.25 张 / −5940 USDC，发送时应保持这一对。
+  - 问题：各阶段直接 return err，缺少阶段信息；等待回执失败没带 tx hash；`log.Printf("Liquidator tx receipt: %s", txReceipt)` 的参数是 `*types.Receipt`，go vet 报类型不匹配。成功日志还应记录 trader / paper / credit / tx hash。
+  - Codex 新增 `internal/keeper/liquidator_test.go`：无仓位不报价/不发送，查仓位及报价失败的阶段与原错误，多头/空头及报价时仓位缩小的交易编码，目标市场和清算双方地址，读写 context 与共享 auth 不被修改。参数在 gas 估算处检查并拦截，未广播交易，不代表链上清算已验收。
+  - 当前 build 和格式检查通过；vet 失败，全量 go test 被相同 vet 错误阻断。单独 `-vet=off` 诊断时有 5 个子用例因缺少错误阶段失败。只在临时副本修正日志格式及错误包装后，新测试通过；6 项参数/上下文/零仓位变异全被捕获。用户工作区主体保持原样；进度仍为 60%。
+  - 用户随后明确授权 Codex 修改上述几处。已为绑定、读仓位、报价、发送、等回执添加阶段及 `%w` 包装，读写错误带市场/交易者，等待失败带交易哈希；成功日志改为 trader / perp / paper / credit / receipt.TxHash。报价 `(lpc, lcc)` 配对逻辑保留。修改后 build / vet / gofmt 检查及 `go test -count=1 ./...` 全部通过，5a 本地 review 通过；真实发送及回执路径仍待 anvil 验收，checkOnce / Run 尚待实现。
+- 第 5b 步 `checkOnce` 初版 review（待用户修正）：正确使用 Dealer.IsSafe（MM）、安全账户跳过、查询/清算失败后继续扫描、errors.Join 保留多个错误。遗漏：每轮开始检查 ctx.Err()、跳过 l.auth.From、IsSafe 查询失败补交易者地址和阶段；清算函数内部已有阶段与地址，不必重复包装。
+  - 新增 `internal/keeper/liquidator_scan_test.go`：空名单/安全账户不清算、自己不查也不清算、查询与报价分别失败后仍扫到后续账户且保留两个原因、查询与清算沿用 ctx、预先取消与中途取消停止扫描。当前 build / vet / gofmt 检查通过；全量测试因新增 4 项边界测试失败而未通过，进度仍为 60%。
+  - 仅在临时副本补齐上述三项后，新测试全绿；7 项变异（不跳过自己、忽略取消、查询失败退出、清算失败退出、丢弃汇总错误、反转安全判断、丢失查询错误上下文）全部捕获。用户工作区主体未改，尚未真实广播清算交易。
+  - 第二版用户补上取消检查、跳过自己后，只剩 IsSafe 错误缺账户地址的 1 项测试失败。用户授权 Codex 处理日志后，将其改为 `fmt.Errorf("isSafe for %s: %w", trader.Hex(), err)`；保留用户其余逻辑。build / vet / gofmt 检查及 `go test -count=1 ./...` 全部通过，5b 本地 review 通过；下一步 5c Liquidator.Run，整体已完成权重仍为 60%，第 5 步的 15% 进行中。
+- 第 5c 步 `Liquidator.Run` 用户完成：ticker + select，串行 checkOnce，失败记日志继续，父 context 取消返回 nil。用户同时把超时分层：每次 IsSafe 查询 10s；liquidate 的读仓位/报价/发交易共用 10s；成功发送后另建父级派生的 60s context 等回执。保留此设计，没有再加整轮 30s 覆盖 60s 等待。
+  - 原测试要求 context 指针相同，对合法派生 context 过严；改为验证父级值保留、deadline 上界、取消传播和及时释放。新增 liquidator_run_test.go 测周期/失败继续/取消；新增 liquidator_receipt_test.go 使用 NoSend 和假 HTTP transport，让真实 WaitSuccess 处理成功回执、status=0 及父级取消，断言等待错误带交易哈希、等待不复用已取消的发送 context。没有真实广播清算交易。
+  - build / vet / gofmt 检查、`go test -count=1 ./...`、keeper race 检查全部通过；临时副本的 9 项变异全部捕获。第 5 步本地 review 通过，进度 75%；D9 真实 keeper/清算验收仍待第 6 步。
+- 第 6 步环境准备：原 8545/8080 均未发现监听。Codex 启动新的 `anvil --silent --host 127.0.0.1 --port 8545`（工具 session 27811），初次受沙箱限制，申请本地监听权限后成功。确认 chainId=31337、block=0，再实际广播现有 Deploy.s.sol；USDC/Dealer/BTC 地址与 Default 相同且链上 code 非空，部署后 block=3。未运行包含历史成交和清算流程的 Demo.s.sol。
+  - 为本轮 HTTP 首笔成交准备：mark=26000 USDC；alice(#4) 存款 500 USDC，bob(#5) mint 后存款 1000 USDC。各笔回执 status=1，回读 primaryCredit 分别为 500000000 / 1000000000，markPrice=26000000000；当前 block=9。alice deposit tx=0x551933bdb3a242fea17754f1a6ec3e88bfde7d0d6a3e0da88d9f56c9769ffce2，bob deposit tx=0xb9e373a4ab45b779ed0e4982218395eace66b4eb751ba36c8576bee2533c588a。
+  - 清算人账户（沿用 carol #6 或新开 #7）仍是历史待确认项，当前没有 Spokenly ask_user_dictation 工具；尚未代选、注资或启动清算服务。当前终端角色私钥环境变量均未设置。下一小步准备现有 signorder 的 HTTP JSON 输出，以便用 POST /order 完成本轮成交；不能把部署/存款视为 D9 撮合、资金费或清算验收完成。
+- 第 6a 步 `orderRequest` 用户一次写对：地址 Hex、大整数十进制字符串、info/signature hex。main 尚未调用；Codex 补 JSON MarshalIndent 和两份打印输出的机械接线。实际运行 signorder（角色配置对该客户端不参与交易，仅填 unused-by-signorder；alice/bob 使用公开 anvil 测试私钥经进程环境传入），链上 domain 核对通过；JSON 字段/类型、paper/credit 符号、info 32 字节、signature 65 字节均验证。生成请求位于 `/private/tmp/my-perpetual-d9-requests-ictthy3f/`，不含私钥。
+  - Codex 新增显式开启的 `internal/api/anvil_d9_test.go::TestD9AnvilHTTPTrade`：用生产 API handler + 真实 HTTP 测试服务 + 真实链，bob 先挂卖 0.1@26000（filled=0、remaining=0.1、无 txHash），查盘口有卖档；alice 买 0.1@26000 吃完，上链成功，簿空；两个 order digest 对应链上 filled 均 0.1，再提交已全成 alice 单返回 409。
+  - 本轮成交 tx=`0xd7835a7be25bb70215eff0f7a0cdc164da7ebe6ffd19bcf826d594df8f13840d`，block=10，status=1。alice paper=+0.1 / credit=−2600 / primary=500；bob paper=−0.1 / credit=+2600 / primary=1000；双方 MM-safe=true。这里是 D9 新成交，未复用 D8 历史结果。
+- 第 6b 步资金费真实验收：Codex 新增显式开启的 `internal/keeper/anvil_d9_test.go::TestD9AnvilFunding`。通过生产 API 挂 alice bid 0.01@26000、bob ask 0.01@26200，两单均未成交；真实引擎盘口 mid=26100、mark=26000。用 #3 keeper 手动执行一次 `tick`（interval 参数 15s；Run 周期另有单测，本次未宣称后台定时实跑）。
+  - tx=`0x6f9e323b27f286ee06d2fa1eb2b37097dc656fdf60b351ca9195ce43cd14f614`，block=11，status=1；累计 fundingRate=−52083（USDC 6 位/张）。GET /position 回读 alice paper=1e17 / credit=−2600005208，减少 5208 微 USDC；bob paper=−1e17 / credit=2600005208，增加 5208 微 USDC。真实 tick 返回 nil，并独立查成功回执。
+  - alice-quote.json / bob-quote.json 也保存在同一临时请求目录，签名有效期为生成后 1 小时；过期后需重新签名。两项测试默认 skip，只有显式 D9_ANVIL_HTTP=1 / D9_ANVIL_FUNDING=1 才运行；有 anvil/chainId/初始状态检查，避免普通 go test 重复提交。两项测试各自的临时 HTTP 服务已关闭，完整 cmd/backend/main.go 尚未启动，main 的新引擎需通过新挂单登记要盯的交易者。
+  - 最新 build / vet / gofmt 检查及普通 `go test -count=1 ./...` 全部通过，两项真实链验收分别实际 PASS。进度仍记为第 6 步 / 共 7 步进行中，已完成权重 75%；清算人账户待确认、main 组装实跑、改价触发自动清算、收尾笔记和 Git 交付尚未完成。尚未改价，当前 anvil 标记价仍为 26000。
+- 用户要求继续后，本轮测试配置沿用现有 Demo.s.sol 的 carol #6（仅本地 fixture）；mock USDC 存款 10000。第一次脚本立即查 mint 回执得到空结果，后续只读查同一 hash 确认 block 12 / status=1；修正脚本等待回执并复用已到账余额，未重复 mint。carol deposit tx=0xb56889238799f1c466bb31d077582c92a2cc32f787b157e04e683bd96a646461，block 14 / status=1。
+- 第 6c 步完整 main 验收：编译后实际启动 cmd/backend，HTTP_ADDR=127.0.0.1:8080，FUNDING_INTERVAL=15s，LIQUIDATION_INTERVAL=1s，三角色分别为 #1/#3/#6。通过新挂单将 alice/bob 登记进实际 main 的新引擎。
+  - 等到后台第一个 15s tick，fundingRate 从 −52083 变为 −104166，tx=0x72e2ba9ee34586187a0d33eee00f06666d9afbc1c44ed6574e5fc4d3b28947d6，block 15 / status=1；日志明确 funding updated，证明本次不是手动 tick。
+  - 两侧挂单都用 EIP-191 `cancel <id> <deadline>` 撤单成功 200，重发 404，簿空后再改价，避免后续资金费干扰清算对账。
+  - mark 改为 22000，tx=0x4aecaea17544785c45a12b7fb85acc5b37099d3314b44ce4a1abe3ba5ac1a1d0，block 16。固定该区块 eth_call 验证 alice net=99.989584、IM=220、MM=110、IsSafe=false，报价 paper=+0.1、credit=−2178、保险费=21.78；固定区块查询避免与自动清算竞态。
+  - 机器人自动提交清算，tx=0xbef291de61c2f55c71e6be5401f4b9ccc4b4b24a5f6daa02ab1455c7580390a5，block 17 / status=1。alice paper=0 / credit=0 / primary=56.209584；carol paper=+0.1 / credit=−2178 / net=10022 / IM=220，isIMSafe=true；保险账户增加 21.78。对账公式从清算前状态和历史区块报价推导，未拿固定结果冒充核对。
+  - SIGINT 后 backend exit=0，8080 已关闭；anvil 仍监听 8545，最终 block=17、mark=22000。完整证据 `/private/tmp/my-perpetual-d9-full-evidence.json`，main 日志 `/private/tmp/my-perpetual-d9-main.log`，验收脚本 `/private/tmp/my-perpetual-d9-full-check.py`。第 6 步通过，进度 90%，D9 整体收尾仍未完成。
+- 第 7 步收尾进行中：发现 Obsidian 已有 D9a（commit 5f39801），覆盖上半且保留当时未完成状态；不覆盖它。已按 obsidian-note 技能准备两篇临时草稿 D9b 与 Go后端手写实战总结-D5b至D9，拟放原手写实战目录，尚未向 Obsidian 写入，分类确认仍按 AGENTS.md 要求执行；Spokenly ask_user_dictation 当前无工具且未发现 51089 监听，未改用其他提问工具。
+  - 收尾检查时 build / vet / gofmt / git diff --check 通过；Go 76 个顶层测试（203 个含子例）通过，2 个真实链测试默认 skip；全量 go test -race 当时通过；forge test 119 passed / 0 failed。后新增针对性并发测试后的状态见下一项，不能沿用先前绿灯。
+  - requesting-code-review 技能安排的独立只读 reviewer 发现一个 P2：handlePlaceOrder 在 PlaceOrder 解锁后读取共享 bo.Remaining，另一请求可在 OrderBook.Fill 原地修改同一 big.Int。已新增 `internal/api/concurrent_response_test.go`，16 并发 worker、128 对买卖请求，`go test -race -count=1 ./internal/api -run '^TestPlaceOrderConcurrentResponses$'` 实际复现 DATA RACE（Fill 写 / 响应 String 读）。之前顺序测试及未覆盖此场景的 race 全绿不代表该路径安全。
+  - 最小修复提案：PlaceOrder 之前 `submittedRemaining := new(big.Int).Set(bo.Remaining)`；响应 Remaining 使用 `new(big.Int).Sub(submittedRemaining, total).String()`，即“提交前独立快照 − 本次成交量”，不是对引擎已扣过的值再扣。补丁放 `/private/tmp/my-perpetual-d9-response-fix.patch`，尚未改用户主体，依手写规则待用户写或明确授权。Git 尚未提交/推送，PLAN D9 尚未勾选；两仓库远端 main 已只读核对，仍分别为 backend 479a125 / contracts f501f45。
+  - 临时副本应用该补丁后，针对性并发 race 测试连续 10 轮通过，全量 `go test -race -count=1 ./...` 通过；用户工作区未应用补丁，仍保留真实红灯回归。两篇草稿在 `/private/tmp/D9b-资金费keeper、清算机器人与端到端验收.md` 和 `/private/tmp/Go后端手写实战总结-D5b至D9.md`，均明确待修复/待交付状态。
+- 用户随后手写完成并发修复，Codex 只把旧注释更新为快照语义。当前真实工作区 `go test -race -count=10 ./internal/api -run '^TestPlaceOrderConcurrentResponses$'`、全量 `go test -race -count=1 ./...`、build / vet / 格式和 diff 检查均通过；不再只是临时副本通过。完整链证据已整理为本仓库 `notes/D9-e2e-evidence.json`，不含私钥。
+  - 用户重点问答：① PlaceOrder 会加锁，但函数返回时已 Unlock，HTTP 响应仍在锁外读取共享 Remaining；因此不是 A 没改完 B 就进去，而是 A 改完后 B 已可进入、A 响应还没完成。② 旧注释“不再减 total”针对已被引擎修改的 bo.Remaining；新方案减的是入引擎前独立快照。③ 贯穿数字由用户确认：A 初始 0.1，本次成交 0.04，快照计算 0.1−0.04=0.06；B 后来再吃 0.02，簿内 0.04 不影响 A 本次响应。讨论中的“1”由用户明确更正为“0.1”，不能把笔记例子写成 1。
+- 最终本地检查：Go 普通全量 77 个顶层测试 / 204 个含子例 PASS，2 个真实链集成测试默认 skip；10 轮并发 race 和全量 race、build、vet、gofmt、diff 检查均通过。后端仅显式暂存本次 28 个 D9 源码/测试/绑定文件，提交 `16f23b769de644ef618a4ac999a0f9f916d7bcfc`，已正常快进推送 GitHub main；未混入 .DS_Store。
+  - 本合约仓库仅准备提交本文件和 `notes/D9-e2e-evidence.json`，不混入 .DS_Store / log/。PLAN D9 暂未勾选，待 Obsidian 两篇草稿确认分类并完成入库推送后再收尾；当前不能报 D9 100%。拟沿用 `个人笔记/Solidity学习/MetaNodePerpetual/手写实战/`，遵守 AGENTS.md 写前确认分类要求；当前无 Spokenly 提问工具，尚未改用其他输入工具提问。

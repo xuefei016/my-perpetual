@@ -1,0 +1,70 @@
+{
+  "rpc": "http://127.0.0.1:8545",
+  "api": "http://127.0.0.1:8080",
+  "liquidatorFixture": "carol #6",
+  "carolMintAlreadyFunded": 10000000000,
+  "carolApprove": {
+    "hash": "0x787a43b225d97ad53743e06b34353be522ad6bb97f4b32e2105f72072a1612eb",
+    "block": 13,
+    "status": 1
+  },
+  "carolDeposit": {
+    "hash": "0xb56889238799f1c466bb31d077582c92a2cc32f787b157e04e683bd96a646461",
+    "block": 14,
+    "status": 1
+  },
+  "mainReady": true,
+  "mainOrders": [
+    "0x20c6f8b8436921be7f5cac05f7614052d7217323e48cd9ba6cdbcbeacb75ec5c",
+    "0x196f7df90960cfeb286a266dd308ea6830f2925412546fcfbdab85ac3def7b1f"
+  ],
+  "backgroundFunding": {
+    "hash": "0x72e2ba9ee34586187a0d33eee00f06666d9afbc1c44ed6574e5fc4d3b28947d6",
+    "block": 15,
+    "status": 1,
+    "rate": -104166
+  },
+  "signedCancel": "both 200; replay 404; book empty",
+  "priceDrop": {
+    "hash": "0x4aecaea17544785c45a12b7fb85acc5b37099d3314b44ce4a1abe3ba5ac1a1d0",
+    "block": 16,
+    "status": 1
+  },
+  "unsafeAtDropBlock": {
+    "net": 99989584,
+    "IM": 220000000,
+    "MM": 110000000,
+    "paper": 100000000000000000,
+    "quotePaper": 100000000000000000,
+    "quoteCredit": -2178000000,
+    "insuranceFee": 21780000
+  },
+  "automaticLiquidation": {
+    "hash": "0xbef291de61c2f55c71e6be5401f4b9ccc4b4b24a5f6daa02ab1455c7580390a5",
+    "block": 17,
+    "status": 1,
+    "alicePaper": 0,
+    "aliceCredit": 0,
+    "alicePrimary": 56209584,
+    "carolPaper": 100000000000000000,
+    "carolCredit": -2178000000,
+    "carolNet": 10022000000,
+    "carolIM": 220000000,
+    "carolIMSafe": true,
+    "insuranceDelta": 21780000
+  },
+  "backendExitCode": 0,
+  "httpClosedAfterSIGINT": true,
+  "httpTrade": {
+    "hash": "0xd7835a7be25bb70215eff0f7a0cdc164da7ebe6ffd19bcf826d594df8f13840d",
+    "block": 10,
+    "status": 1
+  },
+  "manualFunding": {
+    "hash": "0x6f9e323b27f286ee06d2fa1eb2b37097dc656fdf60b351ca9195ce43cd14f614",
+    "block": 11,
+    "status": 1,
+    "rate": -52083
+  },
+  "scope": "D9 local anvil acceptance on 2026-10-30; public test accounts only"
+}
