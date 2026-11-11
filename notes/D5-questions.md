@@ -2,7 +2,7 @@
 
 ## 开工时的决定
 - setOperator：是用户自助函数（msg.sender 给自己授权机器人），**入口留在 MetaNodeExternal**，不迁到 MetaNodeOperation（那个文件只放 onlyOwner 的管理入口）。
-- Go 后端位置：按 PLAN，同级独立仓库 `/Users/fei/Documents/Solidity/my-perpetual-backend`（用户确认）。
+- Go 后端位置：按 PLAN，同级独立仓库 `../my-perpetual-backend`（用户确认）。
 - 资金费入口：用户选**今天补上**。原因：Perpetual.updateFundingRate 是 onlyOwner，owner 是 Dealer，而 Dealer 没有转发函数 → 部署后无人能改资金费率，D9 keeper 无入口。做法同参考实现：State 加 fundingRateKeeper，Operation 加 setFundingRateKeeper（onlyOwner）+ updateFundingRate（onlyFundingRateKeeper）。
 - setPerpRiskParams 参数校验：用户选**加** `liquidationPriceOff + insuranceFeeRate <= liquidationThreshold`（否则清算本身就把被清算人打穿仓）。
 - 步骤与权重：1 Operation 20 / 2 View+组装 15 / 3 测试 10 / 4 部署脚本 20 / 5 Go 骨架+abigen 15 / 6 Go 读 10 / 7 Go deposit 10。

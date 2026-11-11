@@ -2,7 +2,7 @@
 
 ## 开工时的决定
 - 横向对比项目（用户全选）：Pledge 借贷（pledgev2）、Uniswap V2（v2-core + v2-periphery）、MetaNodeSwap V3 风格（swap-contract）、MetaNodeStake 质押（Advanced2-contract-stake）；Compound / Aave 按公开设计讲（本地无源码）。
-- 笔记位置：`个人笔记/Solidity学习/MetaNodePerpetual/手写实战/D6-合约架构设计模式与横向对比.md`。
+- 笔记位置：`<notes>/MetaNodePerpetual/手写实战/D6-合约架构设计模式与横向对比.md`。
 - 分块：1 本项目设计模式 + 继承图/调用链 / 2 横向对比 / 3 写笔记推送。
 
 ## 用户提问
@@ -18,4 +18,4 @@
 
 ## 留给后续
 - 横向对比剩余：MetaNodeSwap → MetaNodeStake →（Compound V2 / Aave V3），用同一套框架；Pledge 的 3 道思考题。排期需回「总体计划」会话调整。
-- Obsidian 笔记：`个人笔记/Solidity学习/MetaNodePerpetual/手写实战/D6-合约架构设计模式与横向对比.md`（dc8ae9a 已推送），续写时在第 6 节后追加。
+- Obsidian 笔记：`<notes>/MetaNodePerpetual/手写实战/D6-合约架构设计模式与横向对比.md`（dc8ae9a 已推送），续写时在第 6 节后追加。

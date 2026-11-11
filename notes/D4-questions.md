@@ -23,7 +23,7 @@
 - **合约架构设计模式收尾总结**（用户 2026-10-16 提出，合约部分全部写完后做；会影响排期，放哪一天要回「总体计划」会话定）：
   1. 总结本项目的设计模式：继承拆分（Storage → External/Operation/View → Dealer）、库操作 storage、中心-辐射（Dealer + 多个 Perpetual）、回调与信任边界、权限按文件隔离等，配继承图和调用链。
   2. 横向对比之前写过的借贷类、DEX 类项目（Compound / Aave / Uniswap 风格）：代码组织、存储布局、可升级、多合约协作、钱放在哪、清算与坏账，并分析各自为什么这样选。
-  - /Users/fei/Documents/Solidity 下的候选目录（待用户确认）：
+  - <local-dev-root> 下的候选目录（待用户确认）：
     - 借贷：`ProjectBreakdown-Pledge/pledgev2`（Pledge 固定利率借贷，合约在 contracts/，有 PledgePool、DebtToken、Oracle）
     - DEX：`Base2_Solidity_Dex/swap-contract`（MetaNodeSwap，Uniswap V3 风格：Factory / Pool / PoolManager / PositionManager / SwapRouter）；`v2-core`、`v2-periphery`（Uniswap V2 官方源码）
     - 其他可参考：`Advanced2-contract-stake`（MetaNodeStake 质押）
