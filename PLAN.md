@@ -3,8 +3,8 @@
 参考答案：`../perpetual-contract`（只读对照，不修改）
 
 项目拆分：
-- Solidity 合约：`/Users/fei/Documents/Solidity/my-perpetual`（本仓库，L1-L7）
-- Go 后端：`/Users/fei/Documents/Solidity/my-perpetual-backend`（独立仓库，L8-L12，D5 创建）
+- Solidity 合约：`<repo-root>`（本仓库，L1-L7）
+- Go 后端：`../my-perpetual-backend`（独立仓库，L8-L12，D5 创建）
   - abigen 从 `../my-perpetual/out/*.json` 导出 ABI 生成绑定，生成的绑定代码提交进后端仓库
 
 | 天 | 课程 | 内容 | 完成 |
@@ -19,7 +19,7 @@
 | D8 | L10 后半 + L11 | 撮合引擎（部分成交、价格-时间优先）；tradeData 编码 + 提交 trade | [x] |
 | D9 | L12 | HTTP API + 资金费 keeper + 清算机器人，端到端跑通 | [x] |
 
-节点：D4 结束写合约篇笔记，D6 写架构总结笔记，D9 结束写后端篇笔记（Obsidian `Solidity学习/MetaNodePerpetual/`）。
+节点：D4 结束写合约篇笔记，D6 写架构总结笔记，D9 结束写后端篇笔记（`<notes>/MetaNodePerpetual/`）。
 每天收尾：`forge test` 全绿 + git commit。
 
 ---
